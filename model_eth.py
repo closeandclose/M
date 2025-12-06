@@ -230,7 +230,7 @@ def load_eth_dataset(
     dataset_path: str, 
     normalize: bool = True, 
     norm_method: str = 'min_max'
-) -> Tuple[List[Tuple[torch.Tensor, torch.Tensor]], Dict]:
+) -> Tuple[List[Tuple[torch.Tensor, torch.Tensor, Dict]], Dict]:
     """
     Load ETH dataset from .data file with optional normalization.
     
@@ -457,9 +457,12 @@ def train_model(
         
         for i in train_pbar:
             batch = train_data[i:i + batch_size]
+            if len(batch) == 0:
+                continue
+            
             x_batch = [item[0] for item in batch]
             y_batch = [item[1] for item in batch]
-            stats_batch = [item[2] for item in batch] if len(batch[0]) > 2 else None
+            stats_batch = [item[2] for item in batch] if len(batch) > 0 and len(batch[0]) > 2 else None
             
             # Prepare batch
             x, y, _ = prepare_batch(x_batch, y_batch, stats_batch)
@@ -508,9 +511,12 @@ def train_model(
         with torch.no_grad():
             for i in val_pbar:
                 batch = val_data[i:i + batch_size]
+                if len(batch) == 0:
+                    continue
+                
                 x_batch = [item[0] for item in batch]
                 y_batch = [item[1] for item in batch]
-                stats_batch = [item[2] for item in batch] if len(batch[0]) > 2 else None
+                stats_batch = [item[2] for item in batch] if len(batch) > 0 and len(batch[0]) > 2 else None
                 
                 x, y, _ = prepare_batch(x_batch, y_batch, stats_batch)
                 x = x.to(device)
@@ -592,7 +598,13 @@ def train_model(
     if HAS_TQDM:
         epoch_pbar.close()
     
-    if best_model_state is not None and patience_counter < early_stopping_patience:
+    # Always load the best model state before returning (in case early stopping didn't trigger)
+    # This ensures we save the best model even if training completes all epochs
+    if best_model_state is not None:
+        model.load_state_dict(best_model_state)
+        logger.info(f"✅ Loaded best model from epoch {best_epoch} (val_loss: {best_val_loss:.6f})")
+    
+    if patience_counter < early_stopping_patience:
         logger.info(f"Training completed! Best model at epoch {best_epoch} (val_loss: {best_val_loss:.6f})")
     else:
         logger.info("✅ Training completed!")
@@ -642,9 +654,12 @@ def evaluate_model(
     with torch.no_grad():
         for i in test_pbar:
             batch = test_data[i:i + batch_size]
+            if len(batch) == 0:
+                continue
+            
             x_batch = [item[0] for item in batch]
             y_batch = [item[1] for item in batch]
-            stats_batch = [item[2] for item in batch] if len(batch[0]) > 2 else None
+            stats_batch = [item[2] for item in batch] if len(batch) > 0 and len(batch[0]) > 2 else None
             
             x, y, _ = prepare_batch(x_batch, y_batch, stats_batch)
             x = x.to(device)
@@ -853,7 +868,7 @@ def main():
     
     logger.info(f"{'='*70}\n")
     
-    # Save model
+    # Save model (best model state is already loaded by train_model)
     model_path = Path(__file__).parent.absolute() / "eth_lstm_model.pt"
     torch.save(model.state_dict(), model_path)
     logger.info(f"Model saved to: {model_path}")
